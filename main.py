@@ -113,7 +113,7 @@ class QuarterData():
         print("")
         print(f"Saving {length} statements...\n")
 
-        path = f"{pathlib.Path().absolute()}\\rss\logo.png"
+        path = f"{pathlib.Path().absolute()}/rss/logo.png"
         print(path)
         for i, system in enumerate(self.systems):
             temp = ""
