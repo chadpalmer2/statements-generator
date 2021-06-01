@@ -197,7 +197,7 @@ def upload_file():
             shutil.rmtree(tmp_path)
         except OSError as e:
             print("Error: %s : %s" % (tmp_path, e.strerror))
-            return redirect(url_for('index'))
+            return redirect(url_for('/asp-statements-generator'))
 
     try:
         os.mkdir(tmp_path)
