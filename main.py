@@ -117,7 +117,7 @@ class QuarterData():
         print(path)
         for i, system in enumerate(self.systems):
             temp = ""
-            with open(f"{pathlib.Path().absolute()}\\rss\statement_template.html", "r") as f:
+            with open(f"{pathlib.Path().absolute()}/rss/statement_template.html", "r") as f:
                 temp = f.read()
 
             today = datetime.datetime.now().strftime("%m/%d/%Y")
