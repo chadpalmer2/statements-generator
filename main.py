@@ -7,7 +7,6 @@ import datetime
 import pandas as pd # csv library more lightweight for use case
 import pathlib
 import pdfkit
-import pydf
 
 from zipfile import ZipFile
 import shutil
@@ -149,15 +148,12 @@ class QuarterData():
             filepath = f"{self.path}\{filename}_statement.pdf"
             if os.path.exists(filepath):
                 os.remove(filepath)
-            
-            with open(filepath, 'wb') as f:
-                f.write(pydf.generate_pdf(temp))
-
-            # pdfkit.from_string(
-            #     temp, 
-            #     filepath,
-            #     options=OPTIONS
-            # )
+        
+            pdfkit.from_string(
+                temp, 
+                filepath,
+                options=OPTIONS
+            )
             print(f"Statement {i + 1} complete! ({length - i - 1} remaining)")
 
     def zip(self):
