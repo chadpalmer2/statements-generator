@@ -23,12 +23,12 @@ OPTIONS = {
 }
 
 # problems with current app:
-    # files aren't being cleared after processing finishes
-    # returned zip file is absolute: make relative so less nested folders
-    # logo is not rendering correctly
     # no evidence of action on user side - progress bar via js? redirect to screen with report?
-    # no user input on three params yet
     # not pushed to online access anywhere - heroku dynos might destroy it
+    # read from list of wanted ids
+    # functionality for "by-month"
+    # functionality for PJM as well as NEPool (Mass customers)
+    # add functionality for check writing
 
 def nameify(name):
     result = name[0]
