@@ -1,0 +1,27 @@
+Metadata-Version: 1.1
+Name: pydf
+Version: 12
+Summary: colourised df(1)-clone
+Home-page: http://kassiopeia.juls.savba.sk/~garabik/software/pydf/
+Author: Radovan Garabík
+Author-email: garabik@kassiopeia.juls.savba.sk
+License: Public Domain
+Description: 
+        pydf is a python script that displays the amount of disk space available
+        on the mounted filesystems, using different colours for different
+        types of filesystems. Output format is completely customizable.
+        
+Keywords: df disk space colours filesystems
+Platform: UNKNOWN
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: Console
+Classifier: Intended Audience :: End Users/Desktop
+Classifier: Intended Audience :: System Administrators
+Classifier: License :: Public Domain
+Classifier: Operating System :: POSIX :: Linux
+Classifier: Programming Language :: Python :: 2
+Classifier: Programming Language :: Python :: 3
+Classifier: Topic :: System
+Classifier: Topic :: System :: Filesystems
+Classifier: Topic :: System :: Systems Administration
+Classifier: Topic :: Utilities

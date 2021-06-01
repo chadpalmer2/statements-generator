@@ -1,0 +1,14 @@
+COPYING
+INSTALL
+MANIFEST.in
+README
+changelog
+pydf
+pydf.1
+pydfrc
+setup.cfg
+setup.py
+pydf.egg-info/PKG-INFO
+pydf.egg-info/SOURCES.txt
+pydf.egg-info/dependency_links.txt
+pydf.egg-info/top_level.txt
