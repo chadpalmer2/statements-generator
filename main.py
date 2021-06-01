@@ -27,7 +27,7 @@ OPTIONS = {
     # not pushed to online access anywhere - heroku dynos might destroy it
     # read from list of wanted ids
     # functionality for "by-month"
-    # functionality for PJM as well as NEPool (Mass customers)
+    # functionality for PJM as well as NEPool
     # add functionality for check writing
 
 def nameify(name):
