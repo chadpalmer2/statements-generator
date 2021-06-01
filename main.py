@@ -117,7 +117,7 @@ class QuarterData():
         print(path)
         for i, system in enumerate(self.systems):
             temp = ""
-            with open("rss\statement_template.html", "r") as f:
+            with open(f"{pathlib.Path().absolute()}\\rss\statement_template.html", "r") as f:
                 temp = f.read()
 
             today = datetime.datetime.now().strftime("%m/%d/%Y")
@@ -180,12 +180,16 @@ class QuarterData():
 
 ## routes
 
-@app.route('/asp-statement-generator')
+@app.route('/')
 def index():
     return render_template('index.html')
 
-@app.route('/asp-statement-generator', methods=['POST'])
-def upload_files():
+@app.route('/asp-statements-generator')
+def form_file():
+    return render_template('generator.html')
+
+@app.route('/asp-statements-generator', methods=['POST'])
+def upload_file():
     tmp_path = f"{pathlib.Path().absolute()}/tmp"
 
     if os.path.exists(tmp_path):
@@ -244,3 +248,7 @@ def upload_files():
     else:
         print("Failed to create statements")
         return redirect(url_for('index'))
+
+@app.route('/<other>/')
+def other(other):
+    return redirect(url_for('index'))
