@@ -180,11 +180,11 @@ class QuarterData():
 
 ## routes
 
-@app.route('/')
+@app.route('/asp-statement-generator')
 def index():
     return render_template('index.html')
 
-@app.route('/', methods=['POST'])
+@app.route('/asp-statement-generator', methods=['POST'])
 def upload_files():
     tmp_path = f"{pathlib.Path().absolute()}/tmp"
 
