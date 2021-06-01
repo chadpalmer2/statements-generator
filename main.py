@@ -154,6 +154,7 @@ class QuarterData():
                 filepath,
                 options=OPTIONS
             )
+
             print(f"Statement {i + 1} complete! ({length - i - 1} remaining)")
 
     def zip(self):
