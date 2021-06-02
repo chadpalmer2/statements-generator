@@ -15,16 +15,15 @@ app.config['MAX_CONTENT_LENGTH'] = 2048 * 2048
 app.config['UPLOAD_EXTENSIONS'] = ['.csv']
 app.config['UPLOAD_PATH'] = 'uploads'
 
-# class
 OPTIONS = {
   "enable-local-file-access": "",
   "quiet": ""
 }
 
-# problems with current app:
-    # no evidence of action on user side - progress bar via js? redirect to screen with report?
-    # not pushed to online access anywhere - heroku dynos might destroy it
-    # read from list of wanted ids
+# Issues:
+    # 39 pdfs rather than 41 - two accounts not in masscec-pts system
+
+# Features to be added:
     # functionality for "by-month"
     # functionality for PJM as well as NEPool
     # add functionality for check writing
@@ -39,7 +38,7 @@ def nameify(name):
 
     return result
 
-def zip_directory(directory):
+def zip_directory(directory): # Zip local directory with path "directory" with error checking. Deletes first if already present
     dirPath = directory
     zipPath = directory + ".zip"
 
@@ -54,7 +53,7 @@ def zip_directory(directory):
             zipf.write(filePath , filePath[lenDirPath :] )
     zipf.close() 
 
-def create_directory(directory):
+def create_directory(directory): # Creates local directory with path "directory" with error checking. Deletes first if already present
     if os.path.exists(directory):
         try:
             shutil.rmtree(directory)
@@ -70,7 +69,7 @@ def create_directory(directory):
     
     return True
 
-def get_from_form(form, value):
+def get_from_form(form, value): # Gets string value from submitted form with error checking
     result = form[value]
     try:
         result = float(result)
@@ -84,15 +83,15 @@ def get_from_form(form, value):
     return result
 
 class QuarterData():
-    def __init__(self, uploaded_file, price, broker_rate, agg_rate): # initializes price, year, quarter
+    def __init__(self, uploaded_file, price, broker_rate, agg_rate): # Initializes QuarterData instance
         self.broker_rate = broker_rate
         self.agg_rate = agg_rate
         self.price = price
-        self.df = pd.read_csv(uploaded_file) # should exit if file open fails
+        self.df = pd.read_csv(uploaded_file) # Should exit if file open fails
         self.systems = defaultdict(int)
 
         # use .split instead
-        date = self.df["Period End Date"].iloc[0]
+        date = self.df["PeriodEndDate"].iloc[0]
         first_slash = date.find("/")
         month = date[:first_slash]
         second_slash = date.find("/", first_slash + 1)
@@ -122,22 +121,19 @@ class QuarterData():
 
         self.filter_ids = None
 
-    def fill(self): # iterates over rows, accumulating energy across ids
+    def add_filter_ids(self, id_csv): # Adds filter_ids field for filtering based on optional csv
+        id_df = pd.read_csv(id_csv)
+        self.filter_ids = id_df.loc[:,"SystemID"].to_list
+
+    def fill(self): # Iterates over rows, adding data together and populating self.systems
         for index, row in self.df.iterrows():
-            sys_id = row["System ID"]
-            sys_energy = row["Energy Produced"]
+            sys_id = row["SystemID"]
+            sys_energy = row["EnergyProduced"]
 
-            if self.filter_ids != None:
-                print("filter ids")
-
-            if self.filter_ids == None or (sys_id in self.filter_ids()):
+            if self.filter_ids == None or (int(sys_id.split("-")[2]) in self.filter_ids()):
                 self.systems[sys_id] += sys_energy
 
-    def add_filter_ids(self, id_csv):
-        id_df = pd.read_csv(id_csv)
-        self.filter_ids = id_df.loc[:,"System ID"].to_list
-
-    def build_pdfs(self):
+    def build_pdfs(self): # Bulids HTML for file, converts to PDF with pdfkit
         length = len(self.systems)
         print("")
         print(f"Saving {length} statements...\n")
@@ -155,7 +151,7 @@ class QuarterData():
             aggregator = self.agg_rate * subtotal
             payment = subtotal - brokerpayment - aggregator
 
-            rows = self.df.loc[self.df["System ID"] == system, "System Name"]
+            rows = self.df.loc[self.df["SystemID"] == system, "SystemName"]
             name = nameify(rows.iloc[0]) # why only factor out one single csv read into a helper function? all or none
             
             temp = temp.replace("{{ path }}", path) # image path
@@ -172,7 +168,7 @@ class QuarterData():
             temp = temp.replace("{{ broker_rate }}", f"{self.broker_rate:,.2f}")
             temp = temp.replace("{{ agg_rate }}", f"{(self.agg_rate * 100):,.2f}")
 
-            filename = name.replace(" ", "_")
+            filename = name.replace(" ", "_") + "_" + system
             filepath = f"{self.path}\{filename}_statement.pdf"
             if os.path.exists(filepath):
                 os.remove(filepath)
@@ -185,13 +181,13 @@ class QuarterData():
 
             print(f"Statement {i + 1} complete! ({length - i - 1} remaining)")
 
-    def zip(self):
+    def zip(self): # Zips PDF directory
         zip_directory(self.path)
 
-    def create_files(self):
+    def run(self):
+        self.fill()
         self.build_pdfs()
         self.zip()
-        return True # implement error checking here
 
 ## routes
 
@@ -199,11 +195,7 @@ class QuarterData():
 def index():
     return render_template('index.html')
 
-@app.route('/asp-statements-generator')
-def form_file():
-    return render_template('generator.html')
-
-@app.route('/asp-statements-generator', methods=['POST'])
+@app.route('/', methods=['POST'])
 def upload_file():
     tmp_path = f"{pathlib.Path().absolute()}/tmp"
 
@@ -235,15 +227,11 @@ def upload_file():
         id_file = request.files['id_file']
         qd.add_filter_ids(id_file)
 
-    qd.fill()
+    qd.run()
 
-    if qd.create_files():
-        print(f"\nStatements successfully generated!")
-        return send_file(qd.path + ".zip", as_attachment=True)
-    else:
-        print("Failed to create statements")
-        return redirect(url_for('index'))
+    print(f"\nStatements successfully generated!")
+    return send_file(qd.path + ".zip", as_attachment=True)
 
-@app.route('/<other>/')
+@app.route('/<other>/') # Catch-all to redirect to index
 def other(other):
     return redirect(url_for('index'))
