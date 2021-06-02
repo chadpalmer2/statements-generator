@@ -8,7 +8,7 @@ Note that these instructions are for macOS. Skip any of these steps if you have 
 
 1.	Install Homebrew
 
-Homebrew is a package manager for macOS that makes getting useful software for programming and development easier. A guide for installing it can be found here. The guide, summarized, is as follows. Open a Terminal window and run the following commands:
+Homebrew is a package manager for macOS that makes getting useful software for programming and development easier. A guide for installing it can be found here (https://docs.python-guide.org/starting/install3/osx/). The guide, summarized, is as follows. Open a Terminal window and run the following commands:
 
 ```
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
