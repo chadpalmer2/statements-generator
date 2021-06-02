@@ -50,12 +50,12 @@ Chad’s Statement Generator is a Flask web application which provides a conveni
 All of the packages necessary for this application to run are pip-installable and installed via requirements.txt, with the exception of wkhtmltopdf. The file tree is as follows:
 
 ```
--	/rss 		    # template and logo for statements
--	/templates 		# HTML templates for rendering views in Flask
--	/venv 		    # virtual Python environment
--	main.py		    # all project code
--	Procfile		# holdover from when I intended to deploy application on Heroku
--	README.md		# readme containing this information
+-	/rss 		          # template and logo for statements
+-	/templates 		    # HTML templates for rendering views in Flask
+-	/venv 		        # virtual Python environment
+-	main.py		        # all project code
+-	Procfile		      # holdover from when I intended to deploy application on Heroku
+-	README.md		      # readme containing this information
 -	requirements.txt 	# necessary Python packages, pip-installable
--	wsgi.py		    # wsgi endpoint for running server	
+-	wsgi.py		        # wsgi endpoint for running server	
 ```
