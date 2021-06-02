@@ -4,15 +4,14 @@ from werkzeug.utils import secure_filename
 
 from collections import defaultdict
 import datetime
-import pandas as pd # csv library more lightweight for use case
+import pandas as pd
 import pathlib
 import pdfkit
-
 from zipfile import ZipFile
 import shutil
 
 app = Flask(__name__)
-app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024
+app.config['MAX_CONTENT_LENGTH'] = 2048 * 2048
 app.config['UPLOAD_EXTENSIONS'] = ['.csv']
 app.config['UPLOAD_PATH'] = 'uploads'
 
@@ -40,21 +39,52 @@ def nameify(name):
 
     return result
 
-def get_all_file_paths(directory):
-    file_paths = []
-  
-    for root, directories, files in os.walk(directory):
-        for filename in files:
-            #filepath = os.path.join(root, filename)
-            file_paths.append(filename)
-  
-    return file_paths        
+def zip_directory(directory):
+    dirPath = directory
+    zipPath = directory + ".zip"
 
-# class based approach is clumsy here
+    if os.path.exists(zipPath):
+        os.remove(zipPath)
+
+    zipf = ZipFile(zipPath, mode='w')
+    lenDirPath = len(dirPath)
+    for root, _ , files in os.walk(dirPath):
+        for file in files:
+            filePath = os.path.join(root, file)
+            zipf.write(filePath , filePath[lenDirPath :] )
+    zipf.close() 
+
+def create_directory(directory):
+    if os.path.exists(directory):
+        try:
+            shutil.rmtree(directory)
+        except OSError as e:
+            print("Error: %s : %s" % (directory, e.strerror))
+            return False
+
+    try:
+        os.mkdir(directory)
+    except OSError:
+        print(f"Creation of the directory {directory} failed.")
+        return False
+    
+    return True
+
+def get_from_form(form, value):
+    result = form[value]
+    try:
+        result = float(result)
+    except ValueError:
+        print("Error: Price should be a decimal number")
+        return -1
+    if result < 0:
+        print("Error: Price should be nonnegative")
+        return -1
+    
+    return result
+
 class QuarterData():
     def __init__(self, uploaded_file, price, broker_rate, agg_rate): # initializes price, year, quarter
-        self.path = ""
-        
         self.broker_rate = broker_rate
         self.agg_rate = agg_rate
         self.price = price
@@ -82,39 +112,37 @@ class QuarterData():
             self.quarter = 4
 
         else:
-            raise ValueError("Period End Date not valid")
+            print(f"Error: Period End Date not valid (month: { month } not 1-12)")
+            return None
+
+        statements_path = f"{pathlib.Path().absolute()}/tmp/Q{self.quarter}_statements"
+        if not create_directory(statements_path):
+            return None
+        self.path = statements_path
+
+        self.filter_ids = None
 
     def fill(self): # iterates over rows, accumulating energy across ids
         for index, row in self.df.iterrows():
             sys_id = row["System ID"]
             sys_energy = row["Energy Produced"]
-            self.systems[sys_id] += sys_energy
 
-    def folder(self): # makes a folder  
-        statements_path = f"{pathlib.Path().absolute()}/tmp/Q{self.quarter}_statements"
+            if self.filter_ids != None:
+                print("filter ids")
 
-        if os.path.exists(statements_path):
-            try:
-                shutil.rmtree(statements_path)
-            except OSError as e:
-                print("Error: %s : %s" % (statements_path, e.strerror))
-                exit(1)
+            if self.filter_ids == None or (sys_id in self.filter_ids()):
+                self.systems[sys_id] += sys_energy
 
-        try:
-            os.mkdir(statements_path)
-        except OSError:
-            print(f"Creation of the directory {statements_path} failed.")
-            exit(1)
+    def add_filter_ids(self, id_csv):
+        id_df = pd.read_csv(id_csv)
+        self.filter_ids = id_df.loc[:,"System ID"].to_list
 
-        self.path = statements_path
-
-    def template(self):
+    def build_pdfs(self):
         length = len(self.systems)
         print("")
         print(f"Saving {length} statements...\n")
 
         path = f"{pathlib.Path().absolute()}/rss/logo.png"
-        print(path)
         for i, system in enumerate(self.systems):
             temp = ""
             with open(f"{pathlib.Path().absolute()}/rss/statement_template.html", "r") as f:
@@ -158,26 +186,12 @@ class QuarterData():
             print(f"Statement {i + 1} complete! ({length - i - 1} remaining)")
 
     def zip(self):
-        dirPath = self.path
-        zipPath = self.path + ".zip"
+        zip_directory(self.path)
 
-        if os.path.exists(zipPath):
-            os.remove(zipPath)
-
-        zipf = ZipFile(zipPath, mode='w')
-        lenDirPath = len(dirPath)
-        for root, _ , files in os.walk(dirPath):
-            for file in files:
-                filePath = os.path.join(root, file)
-                zipf.write(filePath , filePath[lenDirPath :] )
-        zipf.close() 
-
-    def run(self):
-        self.fill()
-        self.folder()
-        self.template()
+    def create_files(self):
+        self.build_pdfs()
         self.zip()
-        return True # TODO: implement error checking here
+        return True # implement error checking here
 
 ## routes
 
@@ -193,59 +207,39 @@ def form_file():
 def upload_file():
     tmp_path = f"{pathlib.Path().absolute()}/tmp"
 
-    if os.path.exists(tmp_path):
-        try:
-            shutil.rmtree(tmp_path)
-        except OSError as e:
-            print("Error: %s : %s" % (tmp_path, e.strerror))
-            return redirect(url_for('/asp-statements-generator'))
-
-    try:
-        os.mkdir(tmp_path)
-    except OSError:
-        print(f"Creation of the directory {tmp_path} failed.")
+    if not create_directory(tmp_path):
         return redirect(url_for('index'))
 
-    price = request.form['price']
-    try:
-        price = float(price)
-    except ValueError:
-        print("Error: Price should be a decimal number")
-        return redirect(url_for('index'))
-    if price < 0:
-        print("Error: Price should be nonnegative")
+    price = get_from_form(request.form, "price")
+    if price == -1:
         return redirect(url_for('index'))
 
-    broker_rate = request.form['broker_rate']
-    try:
-        broker_rate = float(broker_rate)
-    except ValueError:
-        print("Error: broker_rate should be a decimal number")
-        return redirect(url_for('index'))
-    if broker_rate < 0:
-        print("Error: broker_rate should be nonnegative")
+    broker_rate = get_from_form(request.form, "broker_rate")
+    if broker_rate == -1:
         return redirect(url_for('index'))
 
-    agg_rate = request.form['agg_rate']
-    try:
-        agg_rate = float(agg_rate)
-    except ValueError:
-        print("Error: agg_rate should be a decimal number")
-        return redirect(url_for('index'))
-    if agg_rate < 0:
-        print("Error: agg_rate should be nonnegative")
+    agg_rate = get_from_form(request.form, "agg_rate")
+    if agg_rate == -1:
         return redirect(url_for('index'))
 
-    if request.files['file'].filename == '':
-        print("Error: No file")
+    if request.files['prod_file'].filename == '':
+        print("Error: No Production Data file")
         return redirect(url_for('index'))
-    uploaded_file = request.files['file']
+    prod_file = request.files['prod_file']
 
-    schema = QuarterData(uploaded_file, price, broker_rate, agg_rate)
+    qd = QuarterData(prod_file, price, broker_rate, agg_rate)
+    if qd == None:
+        return redirect(url_for('index'))
 
-    if schema.run():
+    if not request.files['id_file'].filename == '':
+        id_file = request.files['id_file']
+        qd.add_filter_ids(id_file)
+
+    qd.fill()
+
+    if qd.create_files():
         print(f"\nStatements successfully generated!")
-        return send_file(schema.path + ".zip", as_attachment=True)
+        return send_file(qd.path + ".zip", as_attachment=True)
     else:
         print("Failed to create statements")
         return redirect(url_for('index'))
