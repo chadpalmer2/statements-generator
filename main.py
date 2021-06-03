@@ -10,6 +10,8 @@ import pdfkit
 from zipfile import ZipFile
 import shutil
 
+import pdb
+
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 2048 * 2048
 app.config['UPLOAD_EXTENSIONS'] = ['.csv']
@@ -27,16 +29,6 @@ OPTIONS = {
     # functionality for "by-month"
     # functionality for PJM as well as NEPool
     # add functionality for check writing
-
-def nameify(name):
-    result = name[0]
-    for i, char in enumerate(name[1:]):
-        if char.isupper():
-            if name[i] != " ":
-                result += " "
-        result += char
-
-    return result
 
 def zip_directory(directory): # Zip local directory with path "directory" with error checking. Deletes first if already present
     dirPath = directory
@@ -133,10 +125,12 @@ class QuarterData():
             if self.filter_ids == None or (int(sys_id.split("-")[2]) in self.filter_ids()):
                 self.systems[sys_id] += sys_energy
 
-    def build_pdfs(self): # Bulids HTML for file, converts to PDF with pdfkit
+    def build_files(self): # Bulids HTML for file, converts to PDF with pdfkit, also builds CSV for checking
         length = len(self.systems)
         print("")
         print(f"Saving {length} statements...\n")
+
+        check_data = []
 
         path = f"{pathlib.Path().absolute()}/rss/logo.png"
         for i, system in enumerate(self.systems):
@@ -151,8 +145,8 @@ class QuarterData():
             aggregator = self.agg_rate * subtotal
             payment = subtotal - brokerpayment - aggregator
 
-            rows = self.df.loc[self.df["SystemID"] == system, "SystemName"]
-            name = nameify(rows.iloc[0]) # why only factor out one single csv read into a helper function? all or none
+            name_search = self.df.loc[self.df["SystemID"] == system, ["SysOwnerFirstName", "SysOwnerLastName"]]
+            name = name_search.iloc[0]["SysOwnerFirstName"] + " " + name_search.iloc[0]["SysOwnerLastName"]
             
             temp = temp.replace("{{ path }}", path) # image path
             temp = temp.replace("{{ date }}", f"{today}")
@@ -179,14 +173,24 @@ class QuarterData():
                 options=OPTIONS
             )
 
+            check_data.append([today, name, payment])
+
             print(f"Statement {i + 1} complete! ({length - i - 1} remaining)")
+        
+        df = pd.DataFrame(check_data, columns = ['Date', 'Name', 'Amount'])
+
+        filepath = f"{self.path}\checking.csv"
+        if os.path.exists(filepath):
+            os.remove(filepath)
+
+        df.to_csv(filepath, index=False)
 
     def zip(self): # Zips PDF directory
         zip_directory(self.path)
 
     def run(self):
         self.fill()
-        self.build_pdfs()
+        self.build_files()
         self.zip()
 
 ## routes
