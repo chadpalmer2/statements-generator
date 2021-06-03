@@ -7,6 +7,12 @@
     <h1 style="text-align: center">Statements Generator</h1>
     <form method="POST" action="" enctype="multipart/form-data">
       <p style="text-align: center">Production CSV: <input type="file" name="prod_file"></p>
+
+      <p style="text-align: center">
+        NEPool <input type="radio" name="system" id="nepool" value="nepool">
+        PJM <input type="radio" name="system" id="pjm" value="pjm">
+      </p>
+
       <p style="text-align: center">Customer ID CSV (or leave blank): <input type="file" name="id_file"></p>
       <p style="text-align: center">Price per SREC: <input type="number" min="0" step="any" name="price"></p>
       <p style="text-align: center">Broker Fee per SREC: <input type="number" min="0" step="any" name="broker_rate"></p>

@@ -24,13 +24,16 @@ OPTIONS = {
 
 # Issues:
     # 39 pdfs rather than 41 - two accounts not in masscec-pts system
+    # No error checking if csv columns don't exist AKA csv is not properly formatted
 
 # Features to be added:
     # functionality for "by-month"
     # functionality for PJM as well as NEPool
     # add functionality for check writing
 
-def zip_directory(directory): # Zip local directory with path "directory" with error checking. Deletes first if already present
+# Helper functions
+
+def zip_directory(directory): # Zip local directory with path "directory". Deletes first if already present
     dirPath = directory
     zipPath = directory + ".zip"
 
@@ -61,25 +64,57 @@ def create_directory(directory): # Creates local directory with path "directory"
     
     return True
 
+def erase_file_if_present(path): # Erases local file with path "path" if present.
+    if os.path.exists(path):
+        os.remove(path)
+
+
 def get_from_form(form, value): # Gets string value from submitted form with error checking
     result = form[value]
     try:
         result = float(result)
     except ValueError:
-        print("Error: Price should be a decimal number")
+        print("Error: Inputs should be decimal numbers")
         return -1
     if result < 0:
-        print("Error: Price should be nonnegative")
+        print("Error: Inputs should be nonnegative")
         return -1
     
     return result
 
-class QuarterData():
+def get_system_from_form(form):
+    result = ""
+    try:
+        result = form['system']
+    except:
+        print("Error: No system selected")
+        return -1
+
+    if result == "nepool":
+        return 0
+    elif result == "pjm":
+        return 1
+    else:
+        print("Error: Bad form submission")
+        return -1
+
+class QuarterData(): # Class used for processing NEPool quarterly data
     def __init__(self, uploaded_file, price, broker_rate, agg_rate): # Initializes QuarterData instance
+        self.err = False
+        
         self.broker_rate = broker_rate
         self.agg_rate = agg_rate
         self.price = price
-        self.df = pd.read_csv(uploaded_file) # Should exit if file open fails
+
+        self.df = None
+
+        try:
+            self.df = pd.read_csv(uploaded_file)
+        except:
+            print("Error: Production file not CSV")
+            self.err = True
+            return
+        
         self.systems = defaultdict(int)
 
         # use .split instead
@@ -89,43 +124,49 @@ class QuarterData():
         second_slash = date.find("/", first_slash + 1)
         self.year = date[second_slash + 1:second_slash + 5]
 
-        # will all data be grouped by quarter? seems to assume so
+        # Clean up quarter identification with modulo
         if month in ["2", "3", "4"]:
             self.quarter = 1
-
         elif month in ["5", "6", "7"]:
             self.quarter = 2
-
         elif month in ["8", "9", "10"]:
             self.quarter = 3
-
         elif month in ["11", "12", "1"]:
             self.quarter = 4
-
         else:
             print(f"Error: Period End Date not valid (month: { month } not 1-12)")
-            return None
+            self.err = True
+            return
 
         statements_path = f"{pathlib.Path().absolute()}/tmp/Q{self.quarter}_statements"
         if not create_directory(statements_path):
-            return None
+            print("Error: Directory creation failed")
+            self.err = True
+            return
+
         self.path = statements_path
+        self.ids = None
 
-        self.filter_ids = None
+    def add_filter_ids(self, id_csv): # Adds ids field for filtering based on optional csv
+        id_df = None
+        try:
+            id_df = pd.read_csv(id_csv)
+        except:
+            print("Error: ID file not CSV")
+            self.err = True
+            return
 
-    def add_filter_ids(self, id_csv): # Adds filter_ids field for filtering based on optional csv
-        id_df = pd.read_csv(id_csv)
-        self.filter_ids = id_df.loc[:,"SystemID"].to_list
+        self.ids = id_df.loc[:,"SystemID"].to_list()
 
     def fill(self): # Iterates over rows, adding data together and populating self.systems
         for index, row in self.df.iterrows():
             sys_id = row["SystemID"]
             sys_energy = row["EnergyProduced"]
 
-            if self.filter_ids == None or (int(sys_id.split("-")[2]) in self.filter_ids()):
+            if self.ids == None or (int(sys_id.split("-")[2]) in self.ids):
                 self.systems[sys_id] += sys_energy
 
-    def build_files(self): # Bulids HTML for file, converts to PDF with pdfkit, also builds CSV for checking
+    def construct_files(self): # Bulids HTML for file, converts to PDF with pdfkit, also builds CSV for checking
         length = len(self.systems)
         print("")
         print(f"Saving {length} statements...\n")
@@ -164,8 +205,7 @@ class QuarterData():
 
             filename = name.replace(" ", "_") + "_" + system
             filepath = f"{self.path}\{filename}_statement.pdf"
-            if os.path.exists(filepath):
-                os.remove(filepath)
+            erase_file_if_present(filepath)
         
             pdfkit.from_string(
                 temp, 
@@ -185,15 +225,20 @@ class QuarterData():
 
         df.to_csv(filepath, index=False)
 
-    def zip(self): # Zips PDF directory
+    ## WIP API
+
+    def add_production_data(self, prod_file):
+        pass
+
+    def filter_ids(self, id_file):
+        self.add_filter_ids(id_file)
+
+    def build_files(self):
+        self.fill()
+        self.construct_files()
         zip_directory(self.path)
 
-    def run(self):
-        self.fill()
-        self.build_files()
-        self.zip()
-
-## routes
+# URL routing
 
 @app.route('/')
 def index():
@@ -201,40 +246,54 @@ def index():
 
 @app.route('/', methods=['POST'])
 def upload_file():
-    tmp_path = f"{pathlib.Path().absolute()}/tmp"
+
+    tmp_path = f"{pathlib.Path().absolute()}/tmp" # Build temporary folder for generated files
 
     if not create_directory(tmp_path):
-        return redirect(url_for('index'))
+        print("Error: Temporary folder could not be built (permissions error?)")
+        return redirect(url_for('error'))
 
-    price = get_from_form(request.form, "price")
-    if price == -1:
-        return redirect(url_for('index'))
-
+    price = get_from_form(request.form, "price") # Get values from form
     broker_rate = get_from_form(request.form, "broker_rate")
-    if broker_rate == -1:
-        return redirect(url_for('index'))
-
     agg_rate = get_from_form(request.form, "agg_rate")
-    if agg_rate == -1:
-        return redirect(url_for('index'))
+    system = get_system_from_form(request.form)
 
-    if request.files['prod_file'].filename == '':
-        print("Error: No Production Data file")
-        return redirect(url_for('index'))
-    prod_file = request.files['prod_file']
+    if request.files['prod_file'].filename == '' or price == -1 or broker_rate == -1 or agg_rate == -1 or system == -1:
+        print("Error: Form incomplete")
+        return redirect(url_for('error'))
 
-    qd = QuarterData(prod_file, price, broker_rate, agg_rate)
-    if qd == None:
-        return redirect(url_for('index'))
+    prod_file = request.files['prod_file'] # Get file from form
 
-    if not request.files['id_file'].filename == '':
+    if system == 0:
+        qd = QuarterData(prod_file, price, broker_rate, agg_rate) # Instantiates qd instance
+    else:
+        print("Error: PJM not yet supported")
+        return redirect(url_for('error'))
+
+    if qd.err == True:
+        print("Error: QuarterData failed to instantiate correctly")
+        return redirect(url_for('error'))
+
+    qd.add_production_data(prod_file) # Populates qd with data
+    if qd.err == True:
+        print("Error: Production data CSV improperly formatted or corrupted")
+        return redirect(url_for('error'))
+
+    if not request.files['id_file'].filename == '': # Optionally filters qd with ids from other file
         id_file = request.files['id_file']
-        qd.add_filter_ids(id_file)
+        qd.filter_ids(id_file)
 
-    qd.run()
+    qd.build_files() # Constructs PDFs and CSV
+    if qd.err == True:
+        print("Error: File building failed")
+        return redirect(url_for('error'))
 
     print(f"\nStatements successfully generated!")
-    return send_file(qd.path + ".zip", as_attachment=True)
+    return send_file(qd.path + ".zip", as_attachment=True) # Downloads zip file through browser
+
+@app.route('/error')
+def error():
+    return render_template('error.html')
 
 @app.route('/<other>/') # Catch-all to redirect to index
 def other(other):
