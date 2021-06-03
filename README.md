@@ -4,7 +4,7 @@ A simple webpage that converts a CSV file into pdf statements.
 
 ## First-time Setup
 
-Note that these instructions are for macOS. Skip any of these steps if you have previously installed that software.
+Note that these instructions are for macOS. For Windows installation, skip step one, install Python and wkhtmltopdf manually, and run the commands in step 3 as usual (with the slight change noted on line 4). Skip steps 1 or 2 if you have previously installed that software.
 
 1.	Install Homebrew
 
@@ -33,7 +33,7 @@ In a Terminal window, run:
 cd Desktop
 git clone https://github.com/chadpalmer2/statements-generator.git
 cd statements-generator
-source venv/scripts/activate
+source venv/scripts/activate    # on Windows, omit ‘source’ from this command 
 pip install -r requirements.txt
 ```
 
