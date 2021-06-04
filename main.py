@@ -99,95 +99,116 @@ def get_system_from_form(form):
         return -1
 
 class DataProcessor(): # Class used for processing NEPool quarterly data and PJM monthly data
-    def __init__(self, production_file, price, broker_rate, agg_rate, quarterly=True): # Initializes QuarterData instance
-        self.err = False
-        
+    def __init__(self, price_1, price_2, broker_rate, agg_rate, quarterly=True): # Initializes QuarterData instance
+        if quarterly == False:
+            print("PJM processing not yet supported")
+            self.err = True
+            return
+
+        self.err = False # Error reporting to main
+        self.quarterly = quarterly
+
+        self.today = datetime.datetime.now().strftime("%m/%d/%Y")
         self.broker_rate = broker_rate
         self.agg_rate = agg_rate
-        self.price = price
+        self.price_1 = price_1
+        self.price_2 = price_2
 
-        self.df = None
+        self.period = None
+        self.customer_data = {}
+        self.directory = None
 
+    def add_production_data(self, production_file): # Adds production data to customer_data from csv
         try:
-            self.df = pd.read_csv(production_file)
+            df = pd.read_csv(production_file)
         except:
             print("Error: Production file not CSV")
             self.err = True
             return
-        
-        self.systems = defaultdict(int)
 
-        date = self.df["PeriodEndDate"].iloc[0].split("/")
-        self.year = date[2]
-        self.quarter = (((int(date[0]) - 2) % 12) // 3) + 1 # Sets quarter by arithmetic on month
+        # Sets period (quarter and year) for all rows
+        date = df["PeriodEndDate"].iloc[0].split("/")
+        self.period = f"Q{(((int(date[0]) - 2) % 12) // 3) + 1} {date[2]}"
 
-        statements_path = f"{pathlib.Path().absolute()}/tmp/Q{self.quarter}_statements"
-        if not create_directory(statements_path):
-            print("Error: Directory creation failed")
-            self.err = True
-            return
+        for index, row in df.iterrows(): # Iterate over dictionary, surmising data
+            id = row["SystemID"]
+            if id not in self.customer_data:
+                new_dict = {}
 
-        self.path = statements_path
-        self.ids = None
+                new_dict["id"] = id
+                new_dict["name"] = f"{row['SysOwnerFirstName']} {row['SysOwnerLastName']}"
+                new_dict["generation"] = 0
+                new_dict["srec_type"] = row['SREC Program']
 
-    def add_filter_ids(self, id_csv): # Adds ids field for filtering based on optional csv
-        id_df = None
+                self.customer_data[id] = new_dict
+
+            sys_energy = row["EnergyProduced"]
+            self.customer_data[id]["generation"] += sys_energy
+
+    def filter_ids(self, id_file): # Filters production data with ids from csv
         try:
-            id_df = pd.read_csv(id_csv)
+            df = pd.read_csv(id_file)
         except:
             print("Error: ID file not CSV")
             self.err = True
             return
 
-        self.ids = id_df.loc[:,"SystemID"].to_list()
+        ids = df.loc[:,"SystemID"].to_list()
 
-    def fill(self): # Iterates over rows, adding data together and populating self.systems
-        for index, row in self.df.iterrows():
-            sys_id = row["SystemID"]
-            sys_energy = row["EnergyProduced"]
+        for key in self.customer_data.copy().keys():
+            if int(key.split("-")[2]) not in ids:
+                self.customer_data.pop(key)
 
-            if self.ids == None or (int(sys_id.split("-")[2]) in self.ids):
-                self.systems[sys_id] += sys_energy
 
-    def construct_files(self): # Builds HTML for file, converts to PDF with pdfkit, also builds CSV for checking
-        length = len(self.systems)
-        print("")
-        print(f"Saving {length} statements...\n")
+    def build_files(self):
+        directory = f"{pathlib.Path().absolute()}/tmp/{self.period}_statements"
+        if not create_directory(directory):
+            print("Error: Directory creation failed")
+            self.err = True
+            return
 
+        template_path = f"{pathlib.Path().absolute()}/rss/statement_template.html"
+        photo_path = f"{pathlib.Path().absolute()}/rss/logo.png"
         check_data = []
 
-        path = f"{pathlib.Path().absolute()}/rss/logo.png"
-        for i, system in enumerate(self.systems):
-            temp = ""
-            with open(f"{pathlib.Path().absolute()}/rss/statement_template.html", "r") as f:
+        unfinished_count = len(self.customer_data)
+        finished_count = 0
+        print(f"Saving {unfinished_count} statements...")
+
+        for customer in self.customer_data.values():
+            
+            temp = ""   # Temporary string where HTML template is read and modified
+            with open(template_path, "r") as f:
                 temp = f.read()
 
-            today = datetime.datetime.now().strftime("%m/%d/%Y")
-            generation = self.systems[system] / 1000 # round to thousandths place for legibility
-            subtotal = self.price * generation
+            # Calculating template values
+            generation = customer["generation"] / 1000
+            price = self.price_1 if customer["srec_type"] == 1 else self.price_2
+            subtotal = price * generation
             brokerpayment = self.broker_rate * generation
             aggregator = self.agg_rate * subtotal
             payment = subtotal - brokerpayment - aggregator
-
-            name_search = self.df.loc[self.df["SystemID"] == system, ["SysOwnerFirstName", "SysOwnerLastName"]]
-            name = name_search.iloc[0]["SysOwnerFirstName"] + " " + name_search.iloc[0]["SysOwnerLastName"]
             
-            temp = temp.replace("{{ path }}", path) # image path
-            temp = temp.replace("{{ date }}", f"{today}")
-            temp = temp.replace("{{ period }}", f"Q{self.quarter} {self.year}")
-            temp = temp.replace("{{ name }}", name)
-            temp = temp.replace("{{ id }}", f"{system}")
-            temp = temp.replace("{{ generation }}", f"{generation:,.3f}")
-            temp = temp.replace("{{ price }}", f"{self.price:,.2f}")
+            # Filling template
+            temp = temp.replace("{{ path }}", photo_path) # image path
+            temp = temp.replace("{{ date }}", self.today)
+            temp = temp.replace("{{ period }}", self.period)
+
+            temp = temp.replace("{{ name }}", customer["name"])
+            temp = temp.replace("{{ id }}", customer["id"])
+
+            temp = temp.replace("{{ generation }}", f"{generation:,.4f}")
+            temp = temp.replace("{{ price }}", f"{price:,.2f}")
             temp = temp.replace("{{ subtotal }}", f"{subtotal:,.2f}")
+            temp = temp.replace("{{ broker_rate }}", f"{self.broker_rate:,.2f}")
             temp = temp.replace("{{ brokerpayment }}", f"{brokerpayment:,.2f}")
+            temp = temp.replace("{{ agg_rate }}", f"{(self.agg_rate * 100):,.2f}")
             temp = temp.replace("{{ aggregator }}", f"{aggregator:,.2f}")
             temp = temp.replace("{{ payment }}", f"{payment:,.2f}")
-            temp = temp.replace("{{ broker_rate }}", f"{self.broker_rate:,.2f}")
-            temp = temp.replace("{{ agg_rate }}", f"{(self.agg_rate * 100):,.2f}")
-
-            filename = name.replace(" ", "_") + "_" + system
-            filepath = f"{self.path}\{filename}_statement.pdf"
+            
+            # Generating PDF file
+            filename = f"{customer['name'].replace(' ', '_')}_{customer['id']}"
+            filepath = f"{directory}/{filename}_statement.pdf"
             erase_file_if_present(filepath)
         
             pdfkit.from_string(
@@ -196,61 +217,22 @@ class DataProcessor(): # Class used for processing NEPool quarterly data and PJM
                 options=OPTIONS
             )
 
-            check_data.append([today, name, payment])
+            # Appending data for checking CSV
+            check_data.append([self.today, customer["name"], f"{payment:,.2f}"])
 
-            print(f"Statement {i + 1} complete! ({length - i - 1} remaining)")
+            finished_count += 1
+            unfinished_count -= 1
+            print(f"Statement {finished_count} complete! ({unfinished_count} remaining)")
         
+        # Building checking CSV
         df = pd.DataFrame(check_data, columns = ['Date', 'Name', 'Amount'])
-
-        filepath = f"{self.path}\checking.csv"
+        filepath = f"{directory}/checking.csv"
         if os.path.exists(filepath):
             os.remove(filepath)
-
         df.to_csv(filepath, index=False)
 
-    ## API - work on progress, relies on previously defined functions - reworking so that class can handle pjm more effectively
-
-    # def __init__(self, production_file, price, broker_rate, agg_rate, quarterly=True): # Initializes QuarterData instance
-    #     self.err = False # Error reporting to main
-        
-    #     self.today = datetime.datetime.now().strftime("%m/%d/%Y")
-
-    #     self.broker_rate = broker_rate
-    #     self.agg_rate = agg_rate
-    #     self.price = price
-
-    #     try:
-    #         self.df = pd.read_csv(production_file)
-    #     except:
-    #         print("Error: Production file not CSV")
-    #         self.err = True
-    #         return
-        
-    #     self.systems = defaultdict(int)
-
-    #     date = self.df["PeriodEndDate"].iloc[0].split("/")
-    #     self.year = date[2]
-    #     self.quarter = (((int(date[0]) - 2) % 12) // 3) + 1 # Sets quarter by arithmetic on month
-
-    #     statements_path = f"{pathlib.Path().absolute()}/tmp/Q{self.quarter}_statements"
-    #     if not create_directory(statements_path):
-    #         print("Error: Directory creation failed")
-    #         self.err = True
-    #         return
-
-    #     self.path = statements_path
-    #     self.ids = None
-
-    def add_production_data(self, prod_file):
-        pass
-
-    def filter_ids(self, id_file):
-        self.add_filter_ids(id_file)
-
-    def build_files(self):
-        self.fill()
-        self.construct_files()
-        zip_directory(self.path)
+        zip_directory(directory)
+        self.directory = directory
 
 # URL routing
 
@@ -267,26 +249,21 @@ def upload_file():
         print("Error: Temporary folder could not be built (permissions error?)")
         return redirect(url_for('error'))
 
-    price = get_from_form(request.form, "price") # Get values from form
+    price_1 = get_from_form(request.form, "price_1") # Get values from form
+    price_2 = get_from_form(request.form, "price_2")
     broker_rate = get_from_form(request.form, "broker_rate")
     agg_rate = get_from_form(request.form, "agg_rate")
     system = get_system_from_form(request.form)
 
-    if request.files['prod_file'].filename == '' or price == -1 or broker_rate == -1 or agg_rate == -1 or system == -1:
+    if request.files['prod_file'].filename == '' or price_1 == -1 or price_2 == -1 or broker_rate == -1 or agg_rate == -1 or system == -1:
         print("Error: Form incomplete")
         return redirect(url_for('error'))
 
     prod_file = request.files['prod_file'] # Get file from form
 
-    if system == 0:
-        dp = DataProcessor(prod_file, price, broker_rate, agg_rate, quarterly=True) # Instantiating dp instance
-    elif system == 1:
-        print("Error: PJM not yet supported")
-        dp = DataProcessor(prod_file, price, broker_rate, agg_rate, quarterly=False)
-        return redirect(url_for('error'))
-
+    dp = DataProcessor(price_1, price_2, broker_rate, agg_rate, quarterly=(system == 0)) # Instantiating dp instance
     if dp.err == True:
-        print("Error: DataProcessor failed to instantiate correctly")
+        print("Error: DataProcessor failed to instantiate")
         return redirect(url_for('error'))
 
     dp.add_production_data(prod_file) # Populates qd with data
@@ -297,14 +274,17 @@ def upload_file():
     if not request.files['id_file'].filename == '': # Optionally filters qd with ids from other file
         id_file = request.files['id_file']
         dp.filter_ids(id_file)
+        if dp.err == True:
+            print("Error: ID CSV improperly formatted or corrupted")
+            return redirect(url_for('error'))
 
     dp.build_files() # Constructs PDFs and CSV
     if dp.err == True:
         print("Error: File building failed")
         return redirect(url_for('error'))
 
-    print(f"\nStatements successfully generated!")
-    return send_file(dp.path + ".zip", as_attachment=True) # Downloads zip file through browser
+    print(f"Statements successfully generated!")
+    return send_file(dp.directory + ".zip", as_attachment=True) # Downloads zip file through browser
 
 @app.route('/error')
 def error():
