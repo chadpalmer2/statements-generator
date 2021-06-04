@@ -2,15 +2,12 @@ import os
 from flask import Flask, render_template, request, redirect, url_for, abort, send_file
 from werkzeug.utils import secure_filename
 
-from collections import defaultdict
 import datetime
 import pandas as pd
 import pathlib
 import pdfkit
 from zipfile import ZipFile
 import shutil
-
-import pdb
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 2048 * 2048
@@ -22,14 +19,16 @@ OPTIONS = {
   "quiet": ""
 }
 
+# Confusions:
+    # 39 pdfs rather than 41 - two accounts not in masscec-pts system?
+
 # Issues:
-    # 39 pdfs rather than 41 - two accounts not in masscec-pts system
     # No error checking if csv columns don't exist AKA csv is not properly formatted
 
 # Features to be added:
-    # functionality for "by-month"
-    # functionality for PJM as well as NEPool
+    # Finish incorporating functionality for PJM as well as NEPool
     # add functionality for check writing
+    # Reflect error messaging on error page, rather than terminal
 
 # Helper functions
 
