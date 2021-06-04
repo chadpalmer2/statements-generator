@@ -98,8 +98,8 @@ def get_system_from_form(form):
         print("Error: Bad form submission")
         return -1
 
-class QuarterData(): # Class used for processing NEPool quarterly data
-    def __init__(self, uploaded_file, price, broker_rate, agg_rate): # Initializes QuarterData instance
+class DataProcessor(): # Class used for processing NEPool quarterly data and PJM monthly data
+    def __init__(self, production_file, price, broker_rate, agg_rate, quarterly=True): # Initializes QuarterData instance
         self.err = False
         
         self.broker_rate = broker_rate
@@ -109,7 +109,7 @@ class QuarterData(): # Class used for processing NEPool quarterly data
         self.df = None
 
         try:
-            self.df = pd.read_csv(uploaded_file)
+            self.df = pd.read_csv(production_file)
         except:
             print("Error: Production file not CSV")
             self.err = True
@@ -117,26 +117,9 @@ class QuarterData(): # Class used for processing NEPool quarterly data
         
         self.systems = defaultdict(int)
 
-        # use .split instead
-        date = self.df["PeriodEndDate"].iloc[0]
-        first_slash = date.find("/")
-        month = date[:first_slash]
-        second_slash = date.find("/", first_slash + 1)
-        self.year = date[second_slash + 1:second_slash + 5]
-
-        # Clean up quarter identification with modulo
-        if month in ["2", "3", "4"]:
-            self.quarter = 1
-        elif month in ["5", "6", "7"]:
-            self.quarter = 2
-        elif month in ["8", "9", "10"]:
-            self.quarter = 3
-        elif month in ["11", "12", "1"]:
-            self.quarter = 4
-        else:
-            print(f"Error: Period End Date not valid (month: { month } not 1-12)")
-            self.err = True
-            return
+        date = self.df["PeriodEndDate"].iloc[0].split("/")
+        self.year = date[2]
+        self.quarter = (((int(date[0]) - 2) % 12) // 3) + 1 # Sets quarter by arithmetic on month
 
         statements_path = f"{pathlib.Path().absolute()}/tmp/Q{self.quarter}_statements"
         if not create_directory(statements_path):
@@ -166,7 +149,7 @@ class QuarterData(): # Class used for processing NEPool quarterly data
             if self.ids == None or (int(sys_id.split("-")[2]) in self.ids):
                 self.systems[sys_id] += sys_energy
 
-    def construct_files(self): # Bulids HTML for file, converts to PDF with pdfkit, also builds CSV for checking
+    def construct_files(self): # Builds HTML for file, converts to PDF with pdfkit, also builds CSV for checking
         length = len(self.systems)
         print("")
         print(f"Saving {length} statements...\n")
@@ -191,7 +174,7 @@ class QuarterData(): # Class used for processing NEPool quarterly data
             
             temp = temp.replace("{{ path }}", path) # image path
             temp = temp.replace("{{ date }}", f"{today}")
-            temp = temp.replace("{{ quarter }}", f"Q{self.quarter} {self.year}")
+            temp = temp.replace("{{ period }}", f"Q{self.quarter} {self.year}")
             temp = temp.replace("{{ name }}", name)
             temp = temp.replace("{{ id }}", f"{system}")
             temp = temp.replace("{{ generation }}", f"{generation:,.3f}")
@@ -225,7 +208,38 @@ class QuarterData(): # Class used for processing NEPool quarterly data
 
         df.to_csv(filepath, index=False)
 
-    ## WIP API
+    ## API - work on progress, relies on previously defined functions - reworking so that class can handle pjm more effectively
+
+    # def __init__(self, production_file, price, broker_rate, agg_rate, quarterly=True): # Initializes QuarterData instance
+    #     self.err = False # Error reporting to main
+        
+    #     self.today = datetime.datetime.now().strftime("%m/%d/%Y")
+
+    #     self.broker_rate = broker_rate
+    #     self.agg_rate = agg_rate
+    #     self.price = price
+
+    #     try:
+    #         self.df = pd.read_csv(production_file)
+    #     except:
+    #         print("Error: Production file not CSV")
+    #         self.err = True
+    #         return
+        
+    #     self.systems = defaultdict(int)
+
+    #     date = self.df["PeriodEndDate"].iloc[0].split("/")
+    #     self.year = date[2]
+    #     self.quarter = (((int(date[0]) - 2) % 12) // 3) + 1 # Sets quarter by arithmetic on month
+
+    #     statements_path = f"{pathlib.Path().absolute()}/tmp/Q{self.quarter}_statements"
+    #     if not create_directory(statements_path):
+    #         print("Error: Directory creation failed")
+    #         self.err = True
+    #         return
+
+    #     self.path = statements_path
+    #     self.ids = None
 
     def add_production_data(self, prod_file):
         pass
@@ -265,31 +279,32 @@ def upload_file():
     prod_file = request.files['prod_file'] # Get file from form
 
     if system == 0:
-        qd = QuarterData(prod_file, price, broker_rate, agg_rate) # Instantiates qd instance
-    else:
+        dp = DataProcessor(prod_file, price, broker_rate, agg_rate, quarterly=True) # Instantiating dp instance
+    elif system == 1:
         print("Error: PJM not yet supported")
+        dp = DataProcessor(prod_file, price, broker_rate, agg_rate, quarterly=False)
         return redirect(url_for('error'))
 
-    if qd.err == True:
-        print("Error: QuarterData failed to instantiate correctly")
+    if dp.err == True:
+        print("Error: DataProcessor failed to instantiate correctly")
         return redirect(url_for('error'))
 
-    qd.add_production_data(prod_file) # Populates qd with data
-    if qd.err == True:
+    dp.add_production_data(prod_file) # Populates qd with data
+    if dp.err == True:
         print("Error: Production data CSV improperly formatted or corrupted")
         return redirect(url_for('error'))
 
     if not request.files['id_file'].filename == '': # Optionally filters qd with ids from other file
         id_file = request.files['id_file']
-        qd.filter_ids(id_file)
+        dp.filter_ids(id_file)
 
-    qd.build_files() # Constructs PDFs and CSV
-    if qd.err == True:
+    dp.build_files() # Constructs PDFs and CSV
+    if dp.err == True:
         print("Error: File building failed")
         return redirect(url_for('error'))
 
     print(f"\nStatements successfully generated!")
-    return send_file(qd.path + ".zip", as_attachment=True) # Downloads zip file through browser
+    return send_file(dp.path + ".zip", as_attachment=True) # Downloads zip file through browser
 
 @app.route('/error')
 def error():
