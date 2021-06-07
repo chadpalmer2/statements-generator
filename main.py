@@ -26,6 +26,7 @@ OPTIONS = {
     # No error checking if csv columns don't exist AKA csv is not properly formatted
 
 # Features to be added:
+    # Add empty statement
     # Finish incorporating functionality for PJM as well as NEPool
     # add functionality for check writing
     # Reflect error messaging on error page, rather than terminal
@@ -158,6 +159,34 @@ class DataProcessor(): # Class used for processing NEPool quarterly data and PJM
             if int(key.split("-")[2]) not in ids:
                 self.customer_data.pop(key)
 
+    def build_pdf(self, template_path, filepath, pdf_dict):
+        temp = ""   # Temporary string where HTML template is read and modified
+        with open(template_path, "r") as f:
+            temp = f.read()
+        
+        # Filling template
+        temp = temp.replace("{{ path }}", pdf_dict["path"]) # image path
+        temp = temp.replace("{{ date }}", pdf_dict["date"])
+        temp = temp.replace("{{ period }}", pdf_dict["period"])
+        temp = temp.replace("{{ name }}", pdf_dict["name"])
+        temp = temp.replace("{{ id }}", pdf_dict["id"])
+        temp = temp.replace("{{ generation }}", pdf_dict["generation"])
+        temp = temp.replace("{{ price }}", pdf_dict["price"])
+        temp = temp.replace("{{ subtotal }}", pdf_dict["subtotal"])
+        temp = temp.replace("{{ broker_rate }}", pdf_dict["broker_rate"])
+        temp = temp.replace("{{ broker_payment }}", pdf_dict["broker_payment"])
+        temp = temp.replace("{{ agg_rate }}", pdf_dict["agg_rate"])
+        temp = temp.replace("{{ aggregator }}", pdf_dict["aggregator"])
+        temp = temp.replace("{{ payment }}", pdf_dict["payment"])
+        
+        # Generating PDF file
+        erase_file_if_present(filepath)
+    
+        pdfkit.from_string(
+            temp, 
+            filepath,
+            options=OPTIONS
+        )
 
     def build_files(self):
         directory = f"{pathlib.Path().absolute()}/tmp/{self.period}_statements"
@@ -175,46 +204,36 @@ class DataProcessor(): # Class used for processing NEPool quarterly data and PJM
         print(f"Saving {unfinished_count} statements...")
 
         for customer in self.customer_data.values():
-            
-            temp = ""   # Temporary string where HTML template is read and modified
-            with open(template_path, "r") as f:
-                temp = f.read()
+            pdf_dict = {}
+
+            pdf_dict["path"] = photo_path
+            pdf_dict["date"] = self.today
+            pdf_dict["period"] = self.period
+
+            pdf_dict["name"] = customer["name"]
+            pdf_dict["id"] = customer["id"]
 
             # Calculating template values
             generation = customer["generation"] / 1000
             price = self.price_1 if customer["srec_type"] == 1 else self.price_2
             subtotal = price * generation
-            brokerpayment = self.broker_rate * generation
+            broker_payment = self.broker_rate * generation
             aggregator = self.agg_rate * subtotal
-            payment = subtotal - brokerpayment - aggregator
-            
-            # Filling template
-            temp = temp.replace("{{ path }}", photo_path) # image path
-            temp = temp.replace("{{ date }}", self.today)
-            temp = temp.replace("{{ period }}", self.period)
+            payment = subtotal - broker_payment - aggregator
 
-            temp = temp.replace("{{ name }}", customer["name"])
-            temp = temp.replace("{{ id }}", customer["id"])
+            pdf_dict["generation"] = f"{generation:,.4f}"
+            pdf_dict["price"] = f"{price:,.2f}"
+            pdf_dict["subtotal"] = f"{subtotal:,.2f}"
+            pdf_dict["broker_rate"] = f"{self.broker_rate:,.2f}"
+            pdf_dict["broker_payment"] = f"{broker_payment:,.2f}"
+            pdf_dict["agg_rate"] = f"{(self.agg_rate * 100):,.2f}"
+            pdf_dict["aggregator"] = f"{aggregator:,.2f}"
+            pdf_dict["payment"] = f"{payment:,.2f}"
 
-            temp = temp.replace("{{ generation }}", f"{generation:,.4f}")
-            temp = temp.replace("{{ price }}", f"{price:,.2f}")
-            temp = temp.replace("{{ subtotal }}", f"{subtotal:,.2f}")
-            temp = temp.replace("{{ broker_rate }}", f"{self.broker_rate:,.2f}")
-            temp = temp.replace("{{ brokerpayment }}", f"{brokerpayment:,.2f}")
-            temp = temp.replace("{{ agg_rate }}", f"{(self.agg_rate * 100):,.2f}")
-            temp = temp.replace("{{ aggregator }}", f"{aggregator:,.2f}")
-            temp = temp.replace("{{ payment }}", f"{payment:,.2f}")
-            
-            # Generating PDF file
             filename = f"{customer['name'].replace(' ', '_')}_{customer['id']}"
             filepath = f"{directory}/{filename}_statement.pdf"
-            erase_file_if_present(filepath)
-        
-            pdfkit.from_string(
-                temp, 
-                filepath,
-                options=OPTIONS
-            )
+
+            self.build_pdf(template_path, filepath, pdf_dict)
 
             # Appending data for checking CSV
             check_data.append([self.today, customer["name"], f"{payment:,.2f}"])
@@ -223,12 +242,35 @@ class DataProcessor(): # Class used for processing NEPool quarterly data and PJM
             unfinished_count -= 1
             print(f"Statement {finished_count} complete! ({unfinished_count} remaining)")
         
+        # Building empty template
+        print("Building empty template")
+        empty_pdf_dict = {
+            "path": photo_path,
+            "date": "",
+            "period": "",
+            "name": "",
+            "id": "",
+            "generation": "",
+            "price": "",
+            "subtotal": "",
+            "broker_rate": "",
+            "broker_payment": "",
+            "agg_rate": "",
+            "aggregator": "",
+            "payment": "",
+        }
+        emptyname = "template"
+        emptypath = f"{directory}/{emptyname}_statement.pdf"
+        self.build_pdf(template_path, emptypath, empty_pdf_dict)
+
         # Building checking CSV
+        print("Building checking CSV")
         df = pd.DataFrame(check_data, columns = ['Date', 'Name', 'Amount'])
         filepath = f"{directory}/checking.csv"
         if os.path.exists(filepath):
             os.remove(filepath)
         df.to_csv(filepath, index=False)
+        print("Done")
 
         zip_directory(directory)
         self.directory = directory
