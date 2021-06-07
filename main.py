@@ -20,14 +20,10 @@ OPTIONS = {
 }
 
 # Confusions:
-    # 39 pdfs rather than 41 - two accounts not in masscec-pts system?
-
-# Issues:
-    # No error checking if csv columns don't exist AKA csv is not properly formatted
+    # 39 pdfs rather than 41 - two accounts not in masscec-pts system? - Lee looking into this
+    # no separate SREC 1, 2 in PJM data?
 
 # Features to be added:
-    # Add empty statement
-    # Finish incorporating functionality for PJM as well as NEPool
     # add functionality for check writing
     # Reflect error messaging on error page, rather than terminal
 
@@ -100,11 +96,6 @@ def get_system_from_form(form):
 
 class DataProcessor(): # Class used for processing NEPool quarterly data and PJM monthly data
     def __init__(self, price_1, price_2, broker_rate, agg_rate, quarterly=True): # Initializes QuarterData instance
-        if quarterly == False:
-            print("PJM processing not yet supported")
-            self.err = True
-            return
-
         self.err = False # Error reporting to main
         self.quarterly = quarterly
 
@@ -118,11 +109,10 @@ class DataProcessor(): # Class used for processing NEPool quarterly data and PJM
         self.customer_data = {}
         self.directory = None
 
-    def add_production_data(self, production_file): # Adds production data to customer_data from csv
-        try:
-            df = pd.read_csv(production_file)
-        except:
-            print("Error: Production file not CSV")
+    def add_nepool_data(self, df):
+        required_headers = {"PeriodEndDate", "SystemID", "SysOwnerFirstName", "SysOwnerLastName", "SREC Program", "EnergyProduced"}
+        if not required_headers.issubset(df.columns):
+            print("Correct CSV headers not present")
             self.err = True
             return
 
@@ -130,7 +120,7 @@ class DataProcessor(): # Class used for processing NEPool quarterly data and PJM
         date = df["PeriodEndDate"].iloc[0].split("/")
         self.period = f"Q{(((int(date[0]) - 2) % 12) // 3) + 1} {date[2]}"
 
-        for index, row in df.iterrows(): # Iterate over dictionary, surmising data
+        for index, row in df.iterrows(): # Iterate over dictionary, surmising data - duplicate rows present in NEPool data
             id = row["SystemID"]
             if id not in self.customer_data:
                 new_dict = {}
@@ -144,6 +134,45 @@ class DataProcessor(): # Class used for processing NEPool quarterly data and PJM
 
             sys_energy = row["EnergyProduced"]
             self.customer_data[id]["generation"] += sys_energy
+
+    def add_pjm_data(self, df):
+        required_headers = {"Month of Generation", "Facility Name", "GATS Gen ID", "Generation (kWh)"}
+        if not required_headers.issubset(df.columns):
+            print("Correct CSV headers not present")
+            self.err = True
+            return
+
+        date = df["Month of Generation"].iloc[0].split("/")
+        month_index = int(date[0]) - 1
+
+        months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+        self.period = f"{ months[month_index] } { date[2] }"
+
+        for index, row in df.iterrows():
+            id = row["GATS Gen ID"]
+
+            new_dict = {}
+
+            new_dict["id"] = id
+            new_dict["name"] = row["Facility Name"].split(" - ")[0]
+            new_dict["generation"] = int(row["Generation (kWh)"].replace(",", ""))
+            new_dict["srec_type"] = 1 # No separate SREC type as far as I can tell
+
+            self.customer_data[id] = new_dict
+        
+
+    def add_production_data(self, production_file): # Adds production data to customer_data from csv
+        try:
+            df = pd.read_csv(production_file)
+        except:
+            print("Error: Production file not CSV")
+            self.err = True
+            return
+
+        if self.quarterly:
+            self.add_nepool_data(df)
+        else:
+            self.add_pjm_data(df)
 
     def filter_ids(self, id_file): # Filters production data with ids from csv
         try:
@@ -327,9 +356,13 @@ def upload_file():
     print(f"Statements successfully generated!")
     return send_file(dp.directory + ".zip", as_attachment=True) # Downloads zip file through browser
 
-@app.route('/error')
+@app.route('/error') # Error messaging page
 def error():
     return render_template('error.html')
+
+@app.route('/help') # Help page
+def help():
+    return render_template('help.html')
 
 @app.route('/<other>/') # Catch-all to redirect to index
 def other(other):

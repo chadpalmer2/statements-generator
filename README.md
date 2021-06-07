@@ -41,7 +41,15 @@ Close out of the Terminal window, and you’re done!
 
 ## Usage
 
-Open the statements-generator folder on your Desktop, and double click on wsgi.py. This will launch a Terminal window, with a few lines of text. The final line will have a URL, which you can access with the web browser of your choice to use the Generator. When you are done, press Command+C in the Terminal window to close the software.
+Open a Terminal window, and run the following commands:
+
+```
+cd desktop
+cd statements-generator
+python wsgi.py
+```
+
+The final line of the output will have a URL, which you can access with the web browser of your choice to use the Generator. When you are done, close the Terminal window to close the software.
 
 ## Technical Details
 
