@@ -1,6 +1,6 @@
 # Statements Generator
 
-A simple webpage that converts a CSV file into pdf statements.
+A simple webpage that converts CSV files into PDF statements.
 
 ## First-time Setup
 
@@ -53,7 +53,7 @@ The final line of the output will have a URL, which you can access with the web 
 
 ## Technical Details
 
-Chad’s Statement Generator is a Flask web application which provides a convenient GUI for inputting a couple of CSV files and parameters into a Python script. Roughly speaking, this script loads the data in the CSV file into a pandas dataframe, iterates over this dataframe to calculate necessary statement data, generates an HTML document from a template using that data, converts this to a PDF with pdfkit, and finally zips that file.
+Chad’s Statement Generator is a Flask web application which provides a convenient GUI for inputting CSV files and parameters into a Python script. Roughly speaking, this script loads the data in the CSV file into a pandas dataframe, iterates over this dataframe to calculate necessary statement data, generates an HTML document from a template using that data, converts this to a PDF with pdfkit, and finally zips that file.
 
 All of the packages necessary for this application to run are pip-installable and installed via requirements.txt, with the exception of wkhtmltopdf. The file tree is as follows:
 

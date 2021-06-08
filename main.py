@@ -23,11 +23,10 @@ OPTIONS = {
 
 # Confusions:
     # 39 pdfs rather than 41 - two accounts not in masscec-pts system? - Lee looking into this
-    # no separate SREC 1, 2 in PJM data?
 
 # Features to be added:
-    # add functionality for check writing
     # Reflect error messaging on error page, rather than terminal
+    # add functionality for check writing
 
 # Helper functions
 
@@ -99,6 +98,8 @@ def get_system_from_form(form):
 class DataProcessor(): # Class used for processing NEPool quarterly data and PJM monthly data
     def __init__(self, system, prices, broker_rate, agg_rate): # Initializes QuarterData instance
         self.err = False # Error reporting to main
+        self.errmsg = ""
+
         self.system = "nepool" if system == 0 else "pjm"
 
         self.today = datetime.datetime.now().strftime("%m/%d/%Y")
@@ -111,19 +112,21 @@ class DataProcessor(): # Class used for processing NEPool quarterly data and PJM
         self.customer_data = {}
         self.directory = None
 
+    def dp_report_err(self, message):
+        self.err = True
+        self.errmsg = message
+
     def add_nepool_data(self, production_file):
         # Read and validate files
         try:
             df = pd.read_csv(production_file)
         except:
-            print("Error: Production file not CSV")
-            self.err = True
+            self.dp_report_err("Error: Production file not CSV")
             return
 
         required_headers = {"PeriodEndDate", "SystemID", "SysOwnerFirstName", "SysOwnerLastName", "SREC Program", "EnergyProduced"}
         if not required_headers.issubset(df.columns):
-            print("Correct CSV headers not present")
-            self.err = True
+            self.dp_report_err("Correct CSV headers not present")
             return
 
         # Sets period (quarter and year) for all rows
@@ -151,27 +154,23 @@ class DataProcessor(): # Class used for processing NEPool quarterly data and PJM
         try:
             df = pd.read_csv(production_file)
         except:
-            print("Error: Production file not CSV")
-            self.err = True
+            self.dp_report_err("Error: Production file not CSV")
             return
 
         try:
             details_df = pd.read_csv(details_file)
         except:
-            print("Error: My Generator Details file not CSV")
-            self.err = True
+            self.dp_report_err("Error: My Generator Details file not CSV")
             return
 
         required_headers = {"Month of Generation", "Facility Name", "GATS Gen ID", "Generation (kWh)"}
         if not required_headers.issubset(df.columns):
-            print("Correct headers not present in Production CSV")
-            self.err = True
+            self.dp_report_err("Correct headers not present in Production CSV")
             return
 
         required_details_headers = {"GATS Unit ID", "State"}
         if not required_details_headers.issubset(details_df.columns):
-            print("Correct headers not present in My Generator Details CSV")
-            self.err = True
+            self.dp_report_err("Correct headers not present in My Generator Details CSV")
             return
 
         # Sets period (month and year) for all rows
@@ -193,10 +192,15 @@ class DataProcessor(): # Class used for processing NEPool quarterly data and PJM
             details_row = details_df.loc[details_df["GATS Unit ID"] == id]
 
             if len(details_row) < 1:
-                print(f"No row found in details CSV for { id }")
+                print(f"Warning: no row found in details CSV for { id }")
                 continue
 
-            new_dict["statetype"] = details_row.iloc[0]["State"]
+            state = details_row.iloc[0]["State"]
+
+            if state == "NY":
+                state = "DC" # NY SRECs are sold in DC market per Lee
+
+            new_dict["statetype"] = state
 
             self.customer_data[id] = new_dict
 
@@ -204,8 +208,7 @@ class DataProcessor(): # Class used for processing NEPool quarterly data and PJM
         try:
             df = pd.read_csv(id_file)
         except:
-            print("Error: ID file not CSV")
-            self.err = True
+            self.dp_report_err("Error: ID file not CSV")
             return
 
         ids = df.loc[:,"SystemID"].to_list()
@@ -246,8 +249,7 @@ class DataProcessor(): # Class used for processing NEPool quarterly data and PJM
     def build_files(self):
         directory = f"{pathlib.Path().absolute()}/tmp/{self.period}_statements"
         if not create_directory(directory):
-            print("Error: Directory creation failed")
-            self.err = True
+            self.dp_report_err("Error: Directory creation failed")
             return
 
         template_path = f"{pathlib.Path().absolute()}/rss/statement_template.html"
@@ -338,17 +340,14 @@ def index():
 
 @app.route('/', methods=['POST'])
 def upload_file():
-
     tmp_path = f"{pathlib.Path().absolute()}/tmp" # Build temporary folder for generated files
 
     if not create_directory(tmp_path):
-        print("Error: Temporary folder could not be built (permissions error?)")
-        return redirect(url_for('error'))
+        return redirect(url_for('error', msg="Error: Temporary folder could not be built (permissions error?)"))
 
     system = get_system_from_form(request.form)
     if system == -1:
-        print("Error: No system (NEPool/PJM) Selected")
-        return redirect(url_for('error'))
+        return redirect(url_for('error', msg="Error: No system (NEPool or PJM) Selected"))
     elif system == 0:
         prices = {
             1: get_from_form(request.form, "price_1"),
@@ -358,29 +357,24 @@ def upload_file():
         prices = {
             "DC": get_from_form(request.form, "price_dc"),
             "NJ": get_from_form(request.form, "price_nj"),
-            "MD": get_from_form(request.form, "price_md"),
-            "NY": get_from_form(request.form, "price_ny")
+            "MD": get_from_form(request.form, "price_md")
         }
 
     if -1 in prices.values():
-        print("Error: Form incomplete (price not entered)")
-        return redirect(url_for('error'))
+        return redirect(url_for('error', msg="Error: Form incomplete (price not entered)"))
 
     broker_rate = get_from_form(request.form, "broker_rate")
     agg_rate = get_from_form(request.form, "agg_rate")
 
     if broker_rate == -1 or agg_rate == -1:
-        print("Error: Form incomplete (no broker rate/no aggregator rate")
-        return redirect(url_for('error'))
+        return redirect(url_for('error', msg="Error: Form incomplete (no broker rate or no aggregator rate)"))
 
     dp = DataProcessor(system, prices, broker_rate, agg_rate) # Instantiating dp instance
-    if dp.err == True:
-        print("Error: DataProcessor failed to instantiate")
-        return redirect(url_for('error'))
+    if dp.err:
+        return redirect(url_for('error', msg="Error: DataProcessor failed to instantiate"))
 
     if request.files['prod_file'].filename == '':
-        print("Error: Form incomplete (no Production file uploaded)")
-        return redirect(url_for('error'))
+        return redirect(url_for('error', msg="Error: Form incomplete (no production file uploaded)"))
 
     prod_file = request.files['prod_file'] # Get file from form
 
@@ -388,34 +382,31 @@ def upload_file():
         dp.add_nepool_data(prod_file) # Populates qd with data
     else:
         if request.files['details_file'].filename == '':
-            print("Error: Form incomplete (no My Generator Details file uploaded)")
-            return redirect(url_for('error'))
+            return redirect(url_for('error', msg="Error: Form incomplete (no My Generator Details file uploaded)"))
 
         details_file = request.files['details_file']
         dp.add_pjm_data(prod_file, details_file)
 
-    if dp.err == True:
-        print("Error: Production data CSV or My Generator Details CSV improperly formatted or corrupted")
-        return redirect(url_for('error'))
+    if dp.err:
+        return redirect(url_for('error', msg="Error: Production data CSV or My Generator Details CSV improperly formatted or corrupted"))
 
     if not request.files['id_file'].filename == '': # Optionally filters qd with ids from other file
         id_file = request.files['id_file']
         dp.filter_ids(id_file)
-        if dp.err == True:
-            print("Error: ID CSV improperly formatted or corrupted")
-            return redirect(url_for('error'))
+        if dp.err:
+            return redirect(url_for('error', msg="Error: ID CSV improperly formatted or corrupted"))
 
     dp.build_files() # Constructs PDFs and CSV
-    if dp.err == True:
-        print("Error: File building failed")
-        return redirect(url_for('error'))
+    if dp.err:
+        return redirect(url_for('error', msg="Error: File building failed"))
 
     print(f"Statements successfully generated!")
     return send_file(dp.directory + ".zip", as_attachment=True) # Downloads zip file through browser
 
-@app.route('/error') # Error messaging page
-def error():
-    return render_template('error.html')
+@app.route('/error/<msg>') # Error messaging page
+def error(msg):
+    print(msg)
+    return render_template('error.html', msg=msg)
 
 @app.route('/help') # Help page
 def help():
