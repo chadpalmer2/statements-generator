@@ -2,24 +2,45 @@
 <html>
   <head>
     <title>Statements Generator</title>
+    <script src="{{url_for('static', filename='script.js')}}"></script>
   </head>
   <body>
     <h1 style="text-align: center">Statements Generator</h1>
     <p style="text-align: center"><a href="/help">Usage Guide</a></p>
 
+    </br>
+
     <form method="POST" action="" enctype="multipart/form-data">
       <p style="text-align: center">Production CSV: <input type="file" name="prod_file"></p>
+      <p style="text-align: center">Customer ID CSV (or leave blank): <input type="file" name="id_file"></p>
 
-      <p style="text-align: center">
+      </br>
+
+      <p id="radio_buttons" style="text-align: center">
         NEPool <input type="radio" name="system" id="nepool" value="nepool">
         PJM <input type="radio" name="system" id="pjm" value="pjm">
       </p>
 
-      <p style="text-align: center">Customer ID CSV (or leave blank): <input type="file" name="id_file"></p>
-      <p style="text-align: center">SREC 1 Price: <input type="number" min="0" step="any" name="price_1"></p>
-      <p style="text-align: center">SREC 2 Price: <input type="number" min="0" step="any" name="price_2"></p>
+      <div style="display: none" id="nepool_inputs">
+        <p style="text-align: center">SREC 1 Price: <input type="number" min="0" step="any" name="price_1"></p>
+        <p style="text-align: center">SREC 2 Price: <input type="number" min="0" step="any" name="price_2"></p>
+      </div>
+      <div style="display: none" id="pjm_inputs">
+        <p style="text-align: center">My Generator Details CSV: <input type="file" name="details_file"></p>
+
+        <p style="text-align: center">DC SREC Price: <input type="number" min="0" step="any" name="price_dc"></p>
+        <p style="text-align: center">New Jersey SREC Price: <input type="number" min="0" step="any" name="price_nj"></p>
+        <p style="text-align: center">Maryland SREC Price: <input type="number" min="0" step="any" name="price_md"></p>
+        <p style="text-align: center">New York SREC Price: <input type="number" min="0" step="any" name="price_ny"></p>
+      </div>
+
+      </br>
+
       <p style="text-align: center">Broker Fee per SREC: <input type="number" min="0" step="any" name="broker_rate"></p>
       <p style="text-align: center">Aggregator Commission (input as decimal percentage e.g. 0.05): <input type="number" min="0" step="any" name="agg_rate"></p>
+
+      </br>
+
       <p style="text-align: center"><input type="submit" value="Submit"></p>
     </form>
     

@@ -9,6 +9,8 @@ import pdfkit
 from zipfile import ZipFile
 import shutil
 
+import pdb
+
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 2048 * 2048
 app.config['UPLOAD_EXTENSIONS'] = ['.csv']
@@ -95,21 +97,29 @@ def get_system_from_form(form):
         return -1
 
 class DataProcessor(): # Class used for processing NEPool quarterly data and PJM monthly data
-    def __init__(self, price_1, price_2, broker_rate, agg_rate, quarterly=True): # Initializes QuarterData instance
+    def __init__(self, system, prices, broker_rate, agg_rate): # Initializes QuarterData instance
         self.err = False # Error reporting to main
-        self.quarterly = quarterly
+        self.system = "nepool" if system == 0 else "pjm"
 
         self.today = datetime.datetime.now().strftime("%m/%d/%Y")
         self.broker_rate = broker_rate
         self.agg_rate = agg_rate
-        self.price_1 = price_1
-        self.price_2 = price_2
+
+        self.prices = prices
 
         self.period = None
         self.customer_data = {}
         self.directory = None
 
-    def add_nepool_data(self, df):
+    def add_nepool_data(self, production_file):
+        # Read and validate files
+        try:
+            df = pd.read_csv(production_file)
+        except:
+            print("Error: Production file not CSV")
+            self.err = True
+            return
+
         required_headers = {"PeriodEndDate", "SystemID", "SysOwnerFirstName", "SysOwnerLastName", "SREC Program", "EnergyProduced"}
         if not required_headers.issubset(df.columns):
             print("Correct CSV headers not present")
@@ -120,7 +130,8 @@ class DataProcessor(): # Class used for processing NEPool quarterly data and PJM
         date = df["PeriodEndDate"].iloc[0].split("/")
         self.period = f"Q{(((int(date[0]) - 2) % 12) // 3) + 1} {date[2]}"
 
-        for index, row in df.iterrows(): # Iterate over dictionary, surmising data - duplicate rows present in NEPool data
+        # Iterate over dictionary, surmising data - duplicate rows present in NEPool data
+        for index, row in df.iterrows():
             id = row["SystemID"]
             if id not in self.customer_data:
                 new_dict = {}
@@ -128,26 +139,48 @@ class DataProcessor(): # Class used for processing NEPool quarterly data and PJM
                 new_dict["id"] = id
                 new_dict["name"] = f"{row['SysOwnerFirstName']} {row['SysOwnerLastName']}"
                 new_dict["generation"] = 0
-                new_dict["srec_type"] = row['SREC Program']
+                new_dict["statetype"] = row['SREC Program']
 
                 self.customer_data[id] = new_dict
 
             sys_energy = row["EnergyProduced"]
             self.customer_data[id]["generation"] += sys_energy
 
-    def add_pjm_data(self, df):
-        required_headers = {"Month of Generation", "Facility Name", "GATS Gen ID", "Generation (kWh)"}
-        if not required_headers.issubset(df.columns):
-            print("Correct CSV headers not present")
+    def add_pjm_data(self, production_file, details_file):
+        # Read and validate files
+        try:
+            df = pd.read_csv(production_file)
+        except:
+            print("Error: Production file not CSV")
             self.err = True
             return
 
+        try:
+            details_df = pd.read_csv(details_file)
+        except:
+            print("Error: My Generator Details file not CSV")
+            self.err = True
+            return
+
+        required_headers = {"Month of Generation", "Facility Name", "GATS Gen ID", "Generation (kWh)"}
+        if not required_headers.issubset(df.columns):
+            print("Correct headers not present in Production CSV")
+            self.err = True
+            return
+
+        required_details_headers = {"GATS Unit ID", "State"}
+        if not required_details_headers.issubset(details_df.columns):
+            print("Correct headers not present in My Generator Details CSV")
+            self.err = True
+            return
+
+        # Sets period (month and year) for all rows
         date = df["Month of Generation"].iloc[0].split("/")
         month_index = int(date[0]) - 1
-
         months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
         self.period = f"{ months[month_index] } { date[2] }"
 
+        # Iterates and processes rows
         for index, row in df.iterrows():
             id = row["GATS Gen ID"]
 
@@ -156,23 +189,16 @@ class DataProcessor(): # Class used for processing NEPool quarterly data and PJM
             new_dict["id"] = id
             new_dict["name"] = row["Facility Name"].split(" - ")[0]
             new_dict["generation"] = int(row["Generation (kWh)"].replace(",", ""))
-            new_dict["srec_type"] = 1 # No separate SREC type as far as I can tell
+
+            details_row = details_df.loc[details_df["GATS Unit ID"] == id]
+
+            if len(details_row) < 1:
+                print(f"No row found in details CSV for { id }")
+                continue
+
+            new_dict["statetype"] = details_row.iloc[0]["State"]
 
             self.customer_data[id] = new_dict
-        
-
-    def add_production_data(self, production_file): # Adds production data to customer_data from csv
-        try:
-            df = pd.read_csv(production_file)
-        except:
-            print("Error: Production file not CSV")
-            self.err = True
-            return
-
-        if self.quarterly:
-            self.add_nepool_data(df)
-        else:
-            self.add_pjm_data(df)
 
     def filter_ids(self, id_file): # Filters production data with ids from csv
         try:
@@ -244,7 +270,7 @@ class DataProcessor(): # Class used for processing NEPool quarterly data and PJM
 
             # Calculating template values
             generation = customer["generation"] / 1000
-            price = self.price_1 if customer["srec_type"] == 1 else self.price_2
+            price = self.prices[customer["statetype"]]
             subtotal = price * generation
             broker_payment = self.broker_rate * generation
             aggregator = self.agg_rate * subtotal
@@ -319,26 +345,57 @@ def upload_file():
         print("Error: Temporary folder could not be built (permissions error?)")
         return redirect(url_for('error'))
 
-    price_1 = get_from_form(request.form, "price_1") # Get values from form
-    price_2 = get_from_form(request.form, "price_2")
-    broker_rate = get_from_form(request.form, "broker_rate")
-    agg_rate = get_from_form(request.form, "agg_rate")
     system = get_system_from_form(request.form)
+    if system == -1:
+        print("Error: No system (NEPool/PJM) Selected")
+        return redirect(url_for('error'))
+    elif system == 0:
+        prices = {
+            1: get_from_form(request.form, "price_1"),
+            2: get_from_form(request.form, "price_2")
+        }
+    else:
+        prices = {
+            "DC": get_from_form(request.form, "price_dc"),
+            "NJ": get_from_form(request.form, "price_nj"),
+            "MD": get_from_form(request.form, "price_md"),
+            "NY": get_from_form(request.form, "price_ny")
+        }
 
-    if request.files['prod_file'].filename == '' or price_1 == -1 or price_2 == -1 or broker_rate == -1 or agg_rate == -1 or system == -1:
-        print("Error: Form incomplete")
+    if -1 in prices.values():
+        print("Error: Form incomplete (price not entered)")
         return redirect(url_for('error'))
 
-    prod_file = request.files['prod_file'] # Get file from form
+    broker_rate = get_from_form(request.form, "broker_rate")
+    agg_rate = get_from_form(request.form, "agg_rate")
 
-    dp = DataProcessor(price_1, price_2, broker_rate, agg_rate, quarterly=(system == 0)) # Instantiating dp instance
+    if broker_rate == -1 or agg_rate == -1:
+        print("Error: Form incomplete (no broker rate/no aggregator rate")
+        return redirect(url_for('error'))
+
+    dp = DataProcessor(system, prices, broker_rate, agg_rate) # Instantiating dp instance
     if dp.err == True:
         print("Error: DataProcessor failed to instantiate")
         return redirect(url_for('error'))
 
-    dp.add_production_data(prod_file) # Populates qd with data
+    if request.files['prod_file'].filename == '':
+        print("Error: Form incomplete (no Production file uploaded)")
+        return redirect(url_for('error'))
+
+    prod_file = request.files['prod_file'] # Get file from form
+
+    if dp.system == "nepool":
+        dp.add_nepool_data(prod_file) # Populates qd with data
+    else:
+        if request.files['details_file'].filename == '':
+            print("Error: Form incomplete (no My Generator Details file uploaded)")
+            return redirect(url_for('error'))
+
+        details_file = request.files['details_file']
+        dp.add_pjm_data(prod_file, details_file)
+
     if dp.err == True:
-        print("Error: Production data CSV improperly formatted or corrupted")
+        print("Error: Production data CSV or My Generator Details CSV improperly formatted or corrupted")
         return redirect(url_for('error'))
 
     if not request.files['id_file'].filename == '': # Optionally filters qd with ids from other file
