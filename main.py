@@ -21,11 +21,7 @@ OPTIONS = {
   "quiet": ""
 }
 
-# Confusions:
-    # 39 pdfs rather than 41 - two accounts not in masscec-pts system? - Lee looking into this
-
 # Features to be added:
-    # Reflect error messaging on error page, rather than terminal
     # add functionality for check writing
 
 # Helper functions
@@ -115,6 +111,7 @@ class DataProcessor(): # Class used for processing NEPool quarterly data and PJM
     def dp_report_err(self, message):
         self.err = True
         self.errmsg = message
+        print(message)
 
     def add_nepool_data(self, production_file):
         # Read and validate files
@@ -131,9 +128,13 @@ class DataProcessor(): # Class used for processing NEPool quarterly data and PJM
 
         # Sets period (quarter and year) for all rows
         date = df["PeriodEndDate"].iloc[0].split("/")
-        self.period = f"Q{(((int(date[0]) - 2) % 12) // 3) + 1} {date[2]}"
 
-        # Iterate over dictionary, surmising data - duplicate rows present in NEPool data
+        if self.period == None:
+            self.period = f"Q{(((int(date[0]) - 2) % 12) // 3) + 1} {date[2]}"
+        else:
+            self.period = f"{ self.period }, Q{(((int(date[0]) - 2) % 12) // 3) + 1} {date[2]}"
+
+        # Iterate over dictionary, surmising data
         for index, row in df.iterrows():
             id = row["SystemID"]
             if id not in self.customer_data:
@@ -146,21 +147,14 @@ class DataProcessor(): # Class used for processing NEPool quarterly data and PJM
 
                 self.customer_data[id] = new_dict
 
-            sys_energy = row["EnergyProduced"]
-            self.customer_data[id]["generation"] += sys_energy
+            self.customer_data[id]["generation"] += row["EnergyProduced"]
 
-    def add_pjm_data(self, production_file, details_file):
+    def add_pjm_data(self, production_file, details_df):
         # Read and validate files
         try:
             df = pd.read_csv(production_file)
         except:
             self.dp_report_err("Error: Production file not CSV")
-            return
-
-        try:
-            details_df = pd.read_csv(details_file)
-        except:
-            self.dp_report_err("Error: My Generator Details file not CSV")
             return
 
         required_headers = {"Month of Generation", "Facility Name", "GATS Gen ID", "Generation (kWh)"}
@@ -177,32 +171,34 @@ class DataProcessor(): # Class used for processing NEPool quarterly data and PJM
         date = df["Month of Generation"].iloc[0].split("/")
         month_index = int(date[0]) - 1
         months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
-        self.period = f"{ months[month_index] } { date[2] }"
+
+        if self.period == None:
+            self.period = f"{ months[month_index] } { date[2] }"
+        else:
+            self.period = f"{ self.period }, { months[month_index] } { date[2] }"
 
         # Iterates and processes rows
         for index, row in df.iterrows():
             id = row["GATS Gen ID"]
+            if id not in self.customer_data:
+                new_dict = {}
 
-            new_dict = {}
+                new_dict["id"] = id
+                new_dict["name"] = row["Facility Name"].split(" - ")[0]
+                new_dict["generation"] = 0
 
-            new_dict["id"] = id
-            new_dict["name"] = row["Facility Name"].split(" - ")[0]
-            new_dict["generation"] = int(row["Generation (kWh)"].replace(",", ""))
+                details_row = details_df.loc[details_df["GATS Unit ID"] == id]
+                if len(details_row) < 1:
+                    print(f"Warning: no row found in details CSV for { id }")
+                    continue
+                state = details_row.iloc[0]["State"]
+                if state == "NY":
+                    state = "DC" # NY SRECs are sold in DC market per Lee
+                new_dict["statetype"] = state
 
-            details_row = details_df.loc[details_df["GATS Unit ID"] == id]
+                self.customer_data[id] = new_dict
 
-            if len(details_row) < 1:
-                print(f"Warning: no row found in details CSV for { id }")
-                continue
-
-            state = details_row.iloc[0]["State"]
-
-            if state == "NY":
-                state = "DC" # NY SRECs are sold in DC market per Lee
-
-            new_dict["statetype"] = state
-
-            self.customer_data[id] = new_dict
+            self.customer_data[id]["generation"] += int(row["Generation (kWh)"].replace(",", ""))
 
     def filter_ids(self, id_file): # Filters production data with ids from csv
         try:
@@ -373,19 +369,34 @@ def upload_file():
     if dp.err:
         return redirect(url_for('error', msg="Error: DataProcessor failed to instantiate"))
 
-    if request.files['prod_file'].filename == '':
-        return redirect(url_for('error', msg="Error: Form incomplete (no production file uploaded)"))
+    if request.files['prod_file_1'].filename == '':
+        return redirect(url_for('error', msg="Error: Form incomplete (no Production CSV uploaded)"))
 
-    prod_file = request.files['prod_file'] # Get file from form
+    prod_files = []
+    prod_files.append(request.files['prod_file_1']) # Get file from form
+
+    if request.files['prod_file_2'].filename != '':
+        prod_files.append(request.files['prod_file_2'])
+
+    if request.files['prod_file_3'].filename != '':
+        prod_files.append(request.files['prod_file_3'])
 
     if dp.system == "nepool":
-        dp.add_nepool_data(prod_file) # Populates qd with data
+        for prod_file in prod_files:
+            dp.add_nepool_data(prod_file) # Populates qd with data
     else:
         if request.files['details_file'].filename == '':
-            return redirect(url_for('error', msg="Error: Form incomplete (no My Generator Details file uploaded)"))
+            return redirect(url_for('error', msg="Error: Form incomplete (no Generator Details CSV uploaded)"))
 
         details_file = request.files['details_file']
-        dp.add_pjm_data(prod_file, details_file)
+
+        try:
+            details_df = pd.read_csv(details_file)
+        except:
+            return redirect(url_for('error', msg="Error: My Generator Details file not CSV"))
+
+        for prod_file in prod_files:
+            dp.add_pjm_data(prod_file, details_df)
 
     if dp.err:
         return redirect(url_for('error', msg="Error: Production data CSV or My Generator Details CSV improperly formatted or corrupted"))
@@ -408,9 +419,9 @@ def error(msg):
     print(msg)
     return render_template('error.html', msg=msg)
 
-@app.route('/help') # Help page
-def help():
-    return render_template('help.html')
+@app.route('/guide/') # Help page
+def guide():
+    return render_template('guide.html')
 
 @app.route('/<other>/') # Catch-all to redirect to index
 def other(other):

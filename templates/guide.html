@@ -1,0 +1,27 @@
+<!doctype html>
+<html>
+  <head>
+    <title>Statements Generator</title>
+  </head>
+  <body>
+    <h1 style="text-align: center">Using the Statements Generator</h1>
+    
+    <p>The following describes what information each uploaded file should have, and where they can be downloaded from. Note that all of these files, with the exception of 'Customer ID Filtering CSV', are to be downloaded directly from the relevant website and not modified. Modifying column names will almost certainly break the Statements Generator.</p>
+
+    <h2>Production CSV</h2>
+    <p>This file contains data on customer electricity generation in kWh.</p>
+    <p>NEPool: Download this file from "Individual Systems Production" at <a href=https://www.masscec-pts.com/#/reports/dashboard>https://www.masscec-pts.com/#/reports/dashboard</a></p>
+    <p>PJM: Download this file from Assets > Generation > My Solar Generation at <a href=https://gats.pjm-eis.com/GATS2/AccountReports/AccountSolarGeneration/Filter>https://gats.pjm-eis.com/GATS2/AccountReports/AccountSolarGeneration/Filter</a>.</p>
+
+    <h2>Additional Production CSV (optional)</h2>
+    <p>PJM data is compiled into monthly CSV files. To create statements for periods spanning up to three months, upload a CSV file for each.</p>
+
+    <h2>Generator Details CSV</h2>
+    <p>PJM CSV files do not include location data. To accurately price customer SRECs, you must include a separate CSV with this information. Download this file from Assets > Assets > My Generator Details at <a href=https://gats.pjm-eis.com/gats2/AccountReports/GeneratorDetails>https://gats.pjm-eis.com/gats2/AccountReports/GeneratorDetails</a>.</p>
+
+    <h2>Customer ID Filtering CSV (optional)</h2>
+    <p>If there is a list of customers in need of statements, a CSV file can be uploaded here to filter 'Production CSV' data. This is a file prepared by the end user, not a website. This file should have a single column with name "SystemID" consisting of system IDs for customers to generate statements for.</p>
+
+    <p style="text-align: center"><a href="/">Return</a></p>
+  </body>
+</html>
